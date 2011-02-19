@@ -1,8 +1,44 @@
-assert compatible_with("0.1") == "true"
-assert file_contains("SYSTEM:build.prop", "ro.product.device=dream") == "true" || file_contains("SYSTEM:build.prop", "ro.build.product=dream") == "true"
-assert file_contains("RECOVERY:default.prop", "ro.product.device=dream") == "true" || file_contains("RECOVERY:default.prop", "ro.build.product=dream") == "true"
-assert getprop("ro.product.device") == "dream"
-format BOOT:
-format SYSTEM:
-copy_dir PACKAGE:system SYSTEM:
-write_raw_image PACKAGE:boot.img BOOT:
+# Mount system for check figurepoint etc.
+# mount("ext4", "EMMC","/dev/block/mmcblk0p2", "/system");
+# Make sure Check system image figurepoint first.
+# uncomment below lines to check
+# assert(file_getprop("/system/build.prop", "ro.build.fingerprint") == "freescale/imx53_evk/imx53_evk/imx53_evk:2.2/FRF85B/eng.b33651.20100914.145340:eng/test-keys");
+# assert(getprop("ro.build.platform) == "imx5x");
+# unmount("/system");
+
+# format and copy system image.
+ui_print("foramting...");
+format("ext4","EMMC","/system");
+# format("ubifs","UBI","/system");
+show_progress(0.1, 5);
+
+# In fsl system, it will be mount at /tmp/system directory.
+ui_print("mounting...");
+mount("ext4", "EMMC","/dev/block/mmcblk0p2", "/system");
+# mount("ubifs", "UBI","/dev/ubi1_0", "/system");
+ui_print("extract pakcage...");
+show_progress(0.1, 3);
+package_extract_dir("system", "/system/");
+show_progress(0.1, 10);
+# copy the boot.img(kernel and root direcotry)
+#write_raw_image("bootimg", "BOOT:" );
+show_progress(0.1, 10);
+
+# permimissions...
+ui_print("Symlinks and permissions...");
+symlink("toolbox", "/system/bin/ionice","/tmp/system/bin/nandread");
+set_perm_recursive(0, 0, 0755, 0644, "/system");
+set_perm_recursive(0, 2000, 0755, 0755, "/system/bin");
+set_perm(0, 3003, 02750, "/system/bin/netcfg");
+set_perm(0, 3004, 02755, "/system/bin/ping");
+set_perm(0, 2000, 06750, "/system/bin/run-as");
+set_perm_recursive(1002, 1002, 0755, 0440, "/system/etc/bluetooth");
+set_perm(0, 0, 0755, "/system/etc/bluetooth");
+set_perm(1000, 1000, 0640, "/system/etc/bluetooth/auto_pairing.conf");
+set_perm(3002, 3002, 0444, "/system/etc/bluetooth/blacklist.conf");
+set_perm(1002, 1002, 0440, "/system/etc/dbus.conf");
+set_perm(1014, 2000, 0550, "/system/etc/dhcpcd/dhcpcd-run-hooks");
+set_perm(0, 2000, 0550, "/system/etc/init.goldfish.sh");
+set_perm(0, 0, 0544, "/system/etc/install-recovery.sh");
+set_perm_recursive(0, 0, 0755, 0555, "/system/etc/ppp");
+unmount("/system")

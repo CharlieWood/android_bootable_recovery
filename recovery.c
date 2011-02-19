@@ -813,7 +813,7 @@ main(int argc, char **argv) {
     if (status != INSTALL_SUCCESS || ui_text_visible()) {
         prompt_and_wait();
     }
-
+    
     // Otherwise, get ready to boot the main system...
     finish_recovery(send_intent);
     ui_print("Rebooting...\n");

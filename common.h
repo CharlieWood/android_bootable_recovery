@@ -90,10 +90,11 @@ void ui_reset_progress();
 typedef struct {
     const char* mount_point;  // eg. "/cache".  must live in the root directory.
 
-    const char* fs_type;      // "yaffs2" or "ext4" or "vfat"
+    const char* fs_type;      // "yaffs2" or "ext4" or "vfat" or "ubifs"
 
     const char* device;       // MTD partition name if fs_type == "yaffs"
                               // block device if fs_type == "ext4" or "vfat"
+                              // readable ubivolue name ubi0:system
 
     const char* device2;      // alternative device to try if fs_type
                               // == "ext4" or "vfat" and mounting

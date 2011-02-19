@@ -27,6 +27,9 @@
 #include "roots.h"
 #include "common.h"
 #include "make_ext4fs.h"
+#include "ubifs.h"
+
+int mkfs_ext4(const char *path);
 
 static int num_volumes = 0;
 static Volume* device_volumes = NULL;
@@ -144,7 +147,8 @@ int ensure_path_mounted(const char* path) {
         }
         return mtd_mount_partition(partition, v->mount_point, v->fs_type, 0);
     } else if (strcmp(v->fs_type, "ext4") == 0 ||
-               strcmp(v->fs_type, "vfat") == 0) {
+               strcmp(v->fs_type, "vfat") == 0 ||
+	       strcmp(v->fs_type, "ubifs") == 0) {
         result = mount(v->device, v->mount_point, v->fs_type,
                        MS_NOATIME | MS_NODEV | MS_NODIRATIME, "");
         if (result == 0) return 0;
@@ -239,12 +243,27 @@ int format_volume(const char* volume) {
 
     if (strcmp(v->fs_type, "ext4") == 0) {
         reset_ext4fs_info();
-        int result = make_ext4fs(v->device, NULL, NULL, 0, 0, 0);
+	int result = mkfs_ext4(v->device);
+	/* Use need to disable extents feather to let u-boot access
+	 * the recovery file, use a different format command to do this. */
+        /* int result = make_ext4fs(v->device, NULL, NULL, 0, 0, 0); */
         if (result != 0) {
             LOGE("format_volume: make_extf4fs failed on %s\n", v->device);
             return -1;
         }
         return 0;
+    }
+
+    if (strcmp(v->fs_type, "ubifs") == 0) {
+	char cmd[1024];
+	/* UBIFS use ubiupdatevol to format volume */
+	sprintf(cmd, "%s %s -t", UBI_UPDATE, v->device);
+	LOGI("format_vol: system(%s)", cmd);
+	int result = system(cmd);
+	if (result == 0)
+	    return 0;
+	LOGE("cmd:%s failed with %d errno:%d", cmd, result, errno);
+	return -1;
     }
 
     LOGE("format_volume: fs_type \"%s\" unsupported\n", v->fs_type);
