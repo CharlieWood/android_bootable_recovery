@@ -26,6 +26,9 @@
 
 #include <linux/fb.h>
 #include <linux/kd.h>
+#ifdef FSL_EPDC_FB
+#include <linux/mxcfb.h>
+#endif
 
 #include <pixelflinger/pixelflinger.h>
 
@@ -51,11 +54,62 @@ static int gr_vt_fd = -1;
 
 static struct fb_var_screeninfo vi;
 
+#ifdef FSL_EPDC_FB
+static unsigned int marker_val = 1;
+static int epdc_fd;
+
+static unsigned int update_to_display(int left, int top, int width, int height, int wave_mode,
+	int wait_for_complete, uint flags)
+{
+	struct mxcfb_update_data upd_data;
+	int retval;
+
+	upd_data.update_mode = UPDATE_MODE_PARTIAL;
+	upd_data.waveform_mode = wave_mode;
+	upd_data.update_region.left = left;
+	upd_data.update_region.width = width;
+	upd_data.update_region.top = top;
+	upd_data.update_region.height = height;
+	upd_data.temp = TEMP_USE_AMBIENT;
+	upd_data.flags = flags;
+
+	if (wait_for_complete) {
+		/* Get unique marker value */
+		upd_data.update_marker = marker_val++;
+	} else {
+		upd_data.update_marker = 0;
+	}
+
+	retval = ioctl(epdc_fd, MXCFB_SEND_UPDATE, &upd_data);
+	while (retval < 0) {
+		/* We have limited memory available for updates, so wait and
+		 * then try again after some updates have completed */
+		sleep(1);
+		retval = ioctl(epdc_fd, MXCFB_SEND_UPDATE, &upd_data);
+	}
+
+	if (wait_for_complete) {
+		/* Wait for update to complete */
+		retval = ioctl(epdc_fd, MXCFB_WAIT_FOR_UPDATE_COMPLETE, &upd_data.update_marker);
+		if (retval < 0) {
+			printf("Wait for update complete failed.  Error = 0x%x", retval);
+		}
+	}
+
+	return upd_data.waveform_mode;
+}
+#endif
+
 static int get_framebuffer(GGLSurface *fb)
 {
     int fd;
     struct fb_fix_screeninfo fi;
     void *bits;
+#ifdef FSL_EPDC_FB
+    int auto_update_mode;
+    struct mxcfb_waveform_modes wv_modes;
+    int scheme = UPDATE_SCHEME_QUEUE_AND_MERGE;
+#endif
 
     fd = open("/dev/graphics/fb0", O_RDWR);
     if (fd < 0) {
@@ -74,6 +128,21 @@ static int get_framebuffer(GGLSurface *fb)
         close(fd);
         return -1;
     }
+
+#ifdef FSL_EPDC_FB
+    vi.bits_per_pixel = 16;
+    vi.grayscale = 0;
+    vi.yoffset = 0;
+    vi.rotate = FB_ROTATE_UR;
+    vi.activate = FB_ACTIVATE_FORCE;
+    epdc_fd = fd;
+
+    if (ioctl(fd, FBIOPUT_VSCREENINFO, &vi) < 0) {
+        perror("failed to put fb0 info");
+        close(fd);
+        return -1;
+    }
+#endif
 
     bits = mmap(0, fi.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (bits == MAP_FAILED) {
@@ -100,6 +169,30 @@ static int get_framebuffer(GGLSurface *fb)
     fb->format = GGL_PIXEL_FORMAT_RGB_565;
     memset(fb->data, 0, vi.yres * vi.xres * 2);
 
+#ifdef FSL_EPDC_FB
+    auto_update_mode = AUTO_UPDATE_MODE_REGION_MODE;
+    if (ioctl(fd, MXCFB_SET_AUTO_UPDATE_MODE, &auto_update_mode) < 0) {
+        perror("set auto update mode failed\n");
+        return -1;
+    }
+
+    wv_modes.mode_init = 0;
+    wv_modes.mode_du = 1;
+    wv_modes.mode_gc4 = 3;
+    wv_modes.mode_gc8 = 2;
+    wv_modes.mode_gc16 = 2;
+    wv_modes.mode_gc32 = 2;
+    if (ioctl(fd, MXCFB_SET_WAVEFORM_MODES, &wv_modes) < 0) {
+        perror("set waveform modes failed\n");
+        return -1;
+    }
+
+    if (ioctl(fd, MXCFB_SET_UPDATE_SCHEME, &scheme) < 0) {
+        perror("set update scheme failed\n");
+        return -1;
+    }
+#endif
+
     return fd;
 }
 
@@ -118,9 +211,13 @@ static void set_active_framebuffer(unsigned n)
     vi.yres_virtual = vi.yres * 2;
     vi.yoffset = n * vi.yres;
     vi.bits_per_pixel = 16;
-    if (ioctl(gr_fb_fd, FBIOPUT_VSCREENINFO, &vi) < 0) {
+    if (ioctl(gr_fb_fd, FBIOPAN_DISPLAY, &vi) < 0) {
         perror("active fb swap failed");
     }
+#ifdef FSL_EPDC_FB
+    update_to_display(0, 0, vi.xres, vi.yres,
+			WAVEFORM_MODE_AUTO, 1, 0);
+#endif
 }
 
 void gr_flip(void)
